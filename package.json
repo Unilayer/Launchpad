@@ -1,0 +1,26 @@
+{
+  "name": "layercontracts",
+  "version": "1.0.0",
+  "description": "Unilayer Launchpad smart contracts",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "Launchpad",
+    "Unilayer",
+    "TrustSwap",
+    "Crypto"
+  ],
+  "author": "JoaoCampos89",
+  "license": "ISC",
+  "dependencies": {
+    "@openzeppelin/cli": "^2.8.2",
+    "@openzeppelin/contracts": "^3.2.0",
+    "@openzeppelin/test-environment": "^0.1.4",
+    "@uniswap/v2-core": "^1.0.1",
+    "@uniswap/v2-periphery": "^1.1.0-beta.0",
+    "chai": "^4.2.0",
+    "mocha": "^8.1.3"
+  }
+}
