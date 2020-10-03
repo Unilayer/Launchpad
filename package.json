@@ -4,7 +4,8 @@
   "description": "Unilayer Launchpad smart contracts",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "compile": "oz compile",
+    "test": "mocha --exit --recursive test"
   },
   "keywords": [
     "Launchpad",
