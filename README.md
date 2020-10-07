@@ -26,3 +26,13 @@ Fields needed:
 - uint256 releaseTime - time for withraw LP tokens
 
  NOTE: Price needs to be passed inverted multiplied by a BASE of 100000, for instance if price is 0.005 per ETH you pass as parameter (1/0.005)*BASE
+
+ # Testing
+
+ before run the testing you need to compile
+
+ `npm run compile` 
+
+ Then copy all drafts/builds artifacts to build/contracts generated folder in order to Uniswap artifacts be recognized
+
+ `npm run test `
