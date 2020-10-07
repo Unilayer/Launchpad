@@ -13,23 +13,6 @@ contract Launchpad{
     using SafeMath for uint256;
     using SafeERC20 for IERC20;
    
-    /**
-     * @dev Emitted when tokens are minted on the fallback Received
-     *
-     * Note that `value` may be zero.
-     */
-    event Received(address indexed from, uint256 value);
-    /**
-     * @dev Emitted when tokens are claimed by user
-     *
-     */
-    event Claimed(address indexed from, uint256 value);
-     /**
-     * @dev Emitted when refunded if not successful
-     *
-     */
-    event Refunded(address indexed from, uint256 value);
-
       /**
      * @dev  emitted when sold out
      *
@@ -59,8 +42,13 @@ contract Launchpad{
     uint256 private _end;
 
     uint256 private _start;
+
+    uint256 private _releaseTime;
     // We use price inverted for better calculations
     uint256 private _priceInv;
+
+     // We use price inverted for better calculations
+    uint256 private _priceUniInv;
 
     bool    private _isRefunded = false;
 
@@ -87,7 +75,7 @@ contract Launchpad{
     constructor(IUniswapV2Router02 uniRouter, IERC20 token, uint256 priceUniInv, uint256 priceInv, address owner, address teamWallet, uint256 softCap, uint256 maxCap, uint256 liquidityPercent, uint256 teamPercent, uint256 end, uint256 start, uint256 releaseTime) 
     public 
     {
-        require(start > block.timestamp, "start time above current time");
+        require(start > block.timestamp, "start time needs to be above current time");
         require(releaseTime > block.timestamp, "release time above current time");
         require(end > start, "End time above start time");
         require(liquidityPercent < 3000, "Max Liquidity allowed is 30 %");
@@ -106,6 +94,10 @@ contract Launchpad{
         _teamPercent = teamPercent;
         _priceInv = priceInv;
         _owner = owner;
+        _releaseTime = releaseTime;
+        _token = token;
+        _teamWallet = teamWallet;
+        _priceUniInv = priceUniInv;
     }
 
     /**
@@ -142,6 +134,27 @@ contract Launchpad{
         return _maxCap;
     }
 
+     /**
+     * 
+     */
+    function isSoldOut() public view returns (bool) {
+        return _isSoldOut;
+    }
+
+     /**
+     * 
+     */
+    function isRefunded() public view returns (bool) {
+        return _isRefunded;
+    }
+    /**
+     * 
+     */
+    function uniLocked() public view returns (address) {
+        return address(_uniLocked);
+    }
+
+
 
      /**
      * @dev See {IERC20-balanceOf}.
@@ -157,18 +170,24 @@ contract Launchpad{
     receive() external payable {
         require(block.timestamp > start() , "LaunchpadToken: not started yet");
         require(block.timestamp < end() , "LaunchpadToken: finished");
-        require(_isRefunded != false , "LaunchpadToken: Refunded is activated");
-        require(_isSoldOut != false , "LaunchpadToken: SoldOut");
+        require(_isRefunded == false , "LaunchpadToken: Refunded is activated");
+        require(_isSoldOut == false , "LaunchpadToken: SoldOut");
         uint256 amount = msg.value;
         require(amount > 0, "LaunchpadToken: eth value sent needs to be above zero");
         _balancesToClaim[msg.sender] = _balancesToClaim[msg.sender].add(amount);
         _raisedETH = _raisedETH.add(amount);
         if(_raisedETH > _maxCap){
             _isSoldOut = true;
+            uint256 refundAmount = _raisedETH.sub(_maxCap);
+            if(refundAmount > 0){
+                // Subtract value that is higher than maxCap
+                _balancesToClaim[msg.sender] = _balancesToClaim[msg.sender].sub(refundAmount);
+                payable(msg.sender).transfer(refundAmount);
+            }
             emit SoldOut();
         }
 
-        emit Received(_msgSender(), amount);
+        emit Received(msg.sender, amount);
     }
 
     /**
@@ -188,19 +207,26 @@ contract Launchpad{
             emit Refunded(msg.sender, amount);
             return true;
         }
-        uint256 tokensToClaim = amount.mul(_price).div(_BASE_PRICE);
+        uint256 tokensToClaim = amount.mul(_priceInv).div(_BASE_PRICE);
         // Transfer Tokens to User
         _token.safeTransfer(msg.sender, tokensToClaim);
-        _claimedTokens = _claimedTokens.add(amount);
+        _claimedAmount = _claimedAmount.add(amount);
         emit Claimed(msg.sender, amount);
         return true;
     }
 
     /**
-    * Setup liquidity and transfer all amounts according to defined percents
+    * Setup liquidity and transfer all amounts according to defined percents, if softcap not reached set Refunded flag
     */
     function setupLiquidity() public {
         require(_isSoldOut == true || block.timestamp > end() , "LaunchpadToken: not sold out or time not elapsed yet" );
+        require(_isRefunded == false, "Launchpad: refunded is activated");
+        //
+        if(_raisedETH < _softCap){
+            _isRefunded = true;
+            return;
+        }
+
         _uniLocked.setupToken(_token);
         uint256 ethBalance = address(this).balance;
         require(ethBalance > 0, "LaunchpadToken: eth balance needs to be above zero" );
@@ -214,7 +240,7 @@ contract Launchpad{
         payable(_trustSwapFeeAddress).transfer(trustswapFeeAmount);
         payable(_teamWallet).transfer(teamAmount);
         payable(_uniLocked).transfer(liquidityAmount);
-        _token.safeTransfer(address(this), liquidityAmount.mul(_priceInv).div(_BASE_PRICE));
+        _token.safeTransfer(address(_uniLocked), liquidityAmount.mul(_priceUniInv).div(_BASE_PRICE));
         _uniLocked.addLiquidity();
         _isLiquiditySetup = true;
     }
@@ -233,10 +259,28 @@ contract Launchpad{
         require(block.timestamp >= end() || _isSoldOut == true, "Launchpad: current time is before release time");
         require(_isLiquiditySetup == true, "Launchpad: Liquidity is not setup");
         // TO Define: Tokens not claimed should go back to time after release time?
-        require(_claimedAmount == _raisedETH || block.timestamp >= releaseTime, "Launchpad: Tokens still to be claimed");
+        require(_claimedAmount == _raisedETH || block.timestamp >= _releaseTime, "Launchpad: Tokens still to be claimed");
         require(amount > 0, "Launchpad: no tokens to release");
 
         token.safeTransfer(_owner, amount);
     }
-    
+
+      /**
+     * @dev Emitted when tokens are minted on the fallback Received
+     *
+     * Note that `value` may be zero.
+     */
+    event Received(address indexed from, uint256 value);
+    /**
+     * @dev Emitted when tokens are claimed by user
+     *
+     */
+    event Claimed(address indexed from, uint256 value);
+     /**
+     * @dev Emitted when refunded if not successful
+     *
+     */
+    event Refunded(address indexed from, uint256 value);
+
+
 }

@@ -33,7 +33,7 @@ contract UniswapLocked{
     IUniswapV2Router02 private _uniRouter;
 
     constructor(IUniswapV2Router02 uniRouter, uint256 releaseTime, address owner, uint256 priceInv) public{
-        require(releaseTime > block.timestamp, "UniswapLockedOnMint: release time is before current time");
+        require(releaseTime > block.timestamp, "UniswapLocked: release time is before current time");
         _releaseTime = releaseTime;
         _uniRouter = uniRouter;
         _deployer = msg.sender;
@@ -49,60 +49,26 @@ contract UniswapLocked{
     receive() external payable {
 
     }
-    /**
-    * @dev Add Liquidity to Uniswap at defined price, if no pool exists it will create one. Approve token for router, mint the necessary tokens according 
-    *  to available ETH in the contract
-    *
-     */
-    function addLiquidityOnMint() public {
-        uint256 etherBalance = address(this).balance;
-        uint256 tokensToMint = _priceInv.div(BASE_PRICE).mul(etherBalance);
-        require(address(_token) != address(0), "UniswapLockedOnMint: Token can not be zero");
-        require(etherBalance > 0, "UniswapLockedOnMint: no ether to add liquidity");
-        require(msg.sender == address(_deployer), "UniswapLockedOnMint: Only deployer can call this function");
-       
-        _token.approve(address(_uniRouter), MAX_INT);
-       
-        _token.mint(address(this), tokensToMint);
-        _mintedBalance = _mintedBalance.add(tokensToMint);
-        
-        _uniRouter.addLiquidityETH(address(_token), tokensToMint , tokensToMint, etherBalance, address(this), block.timestamp + 10000);
-    }
+
     /**
     * @dev Add Liquidity to Uniswap at defined price, if no pool exists it will create one.
     *  Approve token for router, require contract to have the necessary tokens
     *
      */
     function addLiquidity() public {
-        require(address(_token) != address(0), "UniswapLockedOnMint: Token can not be zero");
-        uint256 etherBalance = address(this).balance;
-        uint256 tokensToMint = _priceInv.div(BASE_PRICE).mul(etherBalance);
-        require(etherBalance > 0, "UniswapLockedOnMint: no ether to add liquidity");
-        require( _token.balanceOf(address(this)) > 0, "UniswapLockedOnMint: no ether to add liquidity");
-        require(msg.sender == address(_deployer), "UniswapLocked: Only deployer can call this function");
-        _token.approve(address(_uniRouter), MAX_INT);
-  
-        _uniRouter.addLiquidityETH(address(_token), tokensToMint , tokensToMint, etherBalance, address(this), block.timestamp + 10000);
-    }
-
-    /**
-    * @dev Add Liquidity to Uniswap using current balance , if no pool exists it will create one.
-    *  Approve token for router, require contract to have the necessary tokens
-    *
-     */
-    function addLiquidityByBalance() public {
-        require(address(_token) != address(0), "UniswapLockedOnMint: Token can not be zero");
+        require(address(_token) != address(0), "UniswapLocked: Token can not be zero");
         uint256 etherBalance = address(this).balance;
         uint256 tokensAmount = _priceInv.div(BASE_PRICE).mul(etherBalance);
-        require(etherBalance > 0, "UniswapLockedOnMint: no ether to add liquidity");
-        require( _token.balanceOf(address(this)) >= tokensAmount, "UniswapLockedOnMint: no ether to add liquidity");
+        uint256 tokensAmountMin = tokensAmount.sub(_priceInv.div(BASE_PRICE).mul(etherBalance));
+        require(etherBalance > 0, "UniswapLocked: no ether to add liquidity");
+        require( _token.balanceOf(address(this)) > 0, "UniswapLocked: no token balance to add liquidity");
         require(msg.sender == address(_deployer), "UniswapLocked: Only deployer can call this function");
         _token.approve(address(_uniRouter), MAX_INT);
   
-        _uniRouter.addLiquidityETH(address(_token), tokensAmount , tokensAmount, etherBalance, address(this), block.timestamp + 10000);
+        _uniRouter.addLiquidityETH(address(_token), tokensAmount , tokensAmount, etherBalance, address(this), block.timestamp + 100);
     }
 
-
+  
 
    /**
      * @return the time when the tokens are released.
@@ -124,10 +90,10 @@ contract UniswapLocked{
      */
     function release(IERC20 token) public {
         // solhint-disable-next-line not-rely-on-time
-        require(block.timestamp >= _releaseTime, "UniswapLockedOnMint: current time is before release time");
+        require(block.timestamp >= _releaseTime, "UniswapLocked: current time is before release time");
 
         uint256 amount = token.balanceOf(address(this));
-        require(amount > 0, "UniswapLockedOnMint: no tokens to release");
+        require(amount > 0, "UniswapLocked: no tokens to release");
 
         token.safeTransfer(_owner, amount);
     }
@@ -138,8 +104,8 @@ contract UniswapLocked{
      */
     function releaseETH() public {
         // solhint-disable-next-line not-rely-on-time
-        require(block.timestamp >= _releaseTime, "UniswapLockedOnMint: current time is before release time");
-        require(address(this).balance > 0, "UniswapLockedOnMint: no Eth to release");
+        require(block.timestamp >= _releaseTime, "UniswapLocked: current time is before release time");
+        require(address(this).balance > 0, "UniswapLocked: no Eth to release");
 
         payable(owner()).transfer(address(this).balance);
     }
