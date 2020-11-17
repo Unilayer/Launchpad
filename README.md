@@ -1,5 +1,6 @@
 # Unilayer Launchpad Smart contracts (Still in progress, not use)
 
+## NOTE: TESTS NEED TO BE UPDATED ADDING THE LOGIC ROUND 
 
 # Launchpad Flow
 
@@ -14,7 +15,8 @@
 Fields needed:
 
 - priceUni - Price of initial Uniswap Liquidity
-- price  - Price for sale
+- prices  - Price for each round sale
+- caps  - Caps for each round sale
 - owner - owner which receive liquidity tokens, 
 - teamWallet - wallet which receives the raised ETH
 - softCap - Minimum soft cap to finish sale, if not reached sale is refunded

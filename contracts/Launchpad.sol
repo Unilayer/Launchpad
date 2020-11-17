@@ -31,6 +31,8 @@ contract Launchpad{
 
     mapping (address => uint256) private _balancesToClaim;
 
+    mapping (address => uint256) private _balancesToClaimTokens;
+
     uint256 private _liquidityLock;
 
     uint256 private _mintedLiquidity;
@@ -45,7 +47,10 @@ contract Launchpad{
 
     uint256 private _releaseTime;
     // We use price inverted for better calculations
-    uint256 private _priceInv;
+    uint256[] private _priceInv;
+     // We use price inverted for better calculations
+    uint256[] private _caps;
+
 
      // We use price inverted for better calculations
     uint256 private _priceUniInv;
@@ -72,16 +77,19 @@ contract Launchpad{
 
     UniswapLocked private _uniLocked;
 
-    constructor(IUniswapV2Router02 uniRouter, IERC20 token, uint256 priceUniInv, uint256 priceInv, address owner, address teamWallet, uint256 softCap, uint256 maxCap, uint256 liquidityPercent, uint256 teamPercent, uint256 end, uint256 start, uint256 releaseTime) 
+    constructor(IUniswapV2Router02 uniRouter, IERC20 token, uint256 priceUniInv, uint256[] memory caps, uint256[] memory priceInv, address owner, address teamWallet, uint256 softCap, uint256 maxCap, uint256 liquidityPercent, uint256 teamPercent, uint256 end, uint256 start, uint256 releaseTime) 
     public 
     {
         require(start > block.timestamp, "start time needs to be above current time");
         require(releaseTime > block.timestamp, "release time above current time");
         require(end > start, "End time above start time");
         require(liquidityPercent < 3000, "Max Liquidity allowed is 30 %");
-        require(priceInv > _BASE_PRICE, "Price lower than Base");
+        require(priceInv[0] > _BASE_PRICE, "Price lower than Base");
         require(priceUniInv > _BASE_PRICE, "Price Uni lower than Base");
         require(owner != address(0), "Not valid address" );
+        require(caps.length > 0, "Caps can not be zero" );
+        require(caps.length == priceInv.length, "Caps and price not same length" );
+    
         uint256 totalPercent = teamPercent.add(liquidityPercent).add(_launchpadFeePercent.mul(2));
         require(totalPercent == _totalPercent, "Funds are distributed max 100 %");
         // setup UniLocked token
@@ -162,6 +170,13 @@ contract Launchpad{
     function balanceToClaim(address account) public view returns (uint256) {
         return _balancesToClaim[account];
     }
+
+       /**
+     * @dev See {IERC20-balanceOf}.
+     */
+    function balanceToClaimTokens(address account) public view returns (uint256) {
+        return _balancesToClaimTokens[account];
+    }
     /**
     * When receive ETH mint tokens internally and save a storage reference. 
     * Launchpad needs to not have refunded, and nethier sold out
@@ -173,15 +188,26 @@ contract Launchpad{
         require(_isRefunded == false , "LaunchpadToken: Refunded is activated");
         require(_isSoldOut == false , "LaunchpadToken: SoldOut");
         uint256 amount = msg.value;
+        uint256 price = _priceInv[0];
         require(amount > 0, "LaunchpadToken: eth value sent needs to be above zero");
-        _balancesToClaim[msg.sender] = _balancesToClaim[msg.sender].add(amount);
+      
         _raisedETH = _raisedETH.add(amount);
+        for (uint256 index = 0; index < _caps.length; index++) {
+            if(_raisedETH > _caps[index]){
+                price = _priceInv[index];
+                break;
+            }
+        }
+        _balancesToClaim[msg.sender] = _balancesToClaim[msg.sender].add(amount);
+        _balancesToClaimTokens[msg.sender] = _balancesToClaimTokens[msg.sender].add(amount.mul(price));
+
         if(_raisedETH > _maxCap){
             _isSoldOut = true;
             uint256 refundAmount = _raisedETH.sub(_maxCap);
             if(refundAmount > 0){
                 // Subtract value that is higher than maxCap
                 _balancesToClaim[msg.sender] = _balancesToClaim[msg.sender].sub(refundAmount);
+                _balancesToClaimTokens[msg.sender] = _balancesToClaimTokens[msg.sender].sub(amount.mul(price));
                 payable(msg.sender).transfer(refundAmount);
             }
             emit SoldOut();
@@ -197,21 +223,23 @@ contract Launchpad{
     function claim() public returns (bool)  {
         // if sold out no need to wait for the time to finish, make sure liquidity is setup
         require(block.timestamp >= end() || (!_isSoldOut && _isLiquiditySetup), "LaunchpadToken: sales still going on");
-        require(_balancesToClaim[msg.sender] > 0, "LaunchpadToken: No tokens to claim");
+        require(_balancesToClaim[msg.sender] > 0, "LaunchpadToken: No ETH to claim");
+        require(_balancesToClaimTokens[msg.sender] > 0, "LaunchpadToken: No ETH to claim");
        // require(_isRefunded != false , "LaunchpadToken: Refunded is activated");
         uint256 amount =  _balancesToClaim[msg.sender];
         _balancesToClaim[msg.sender] = 0;
+         uint256 amountTokens =  _balancesToClaimTokens[msg.sender];
+        _balancesToClaimTokens[msg.sender] = 0;
         if(_isRefunded){
             // return back funds
             payable(msg.sender).transfer(amount);
             emit Refunded(msg.sender, amount);
             return true;
         }
-        uint256 tokensToClaim = amount.mul(_priceInv).div(_BASE_PRICE);
         // Transfer Tokens to User
-        _token.safeTransfer(msg.sender, tokensToClaim);
-        _claimedAmount = _claimedAmount.add(amount);
-        emit Claimed(msg.sender, amount);
+        _token.safeTransfer(msg.sender, amountTokens);
+        _claimedAmount = _claimedAmount.add(amountTokens);
+        emit Claimed(msg.sender, amountTokens);
         return true;
     }
 
@@ -232,7 +260,7 @@ contract Launchpad{
         require(ethBalance > 0, "LaunchpadToken: eth balance needs to be above zero" );
         uint256 liquidityAmount = ethBalance.mul(_liquidityPercent).div(_totalPercent);
         uint256 tokensAmount = _token.balanceOf(address(this));
-        require(tokensAmount >= liquidityAmount.mul(_priceInv).div(_BASE_PRICE), "Launchpad: Not sufficient tokens amount");
+        require(tokensAmount >= liquidityAmount.mul(_priceUniInv).div(_BASE_PRICE), "Launchpad: Not sufficient tokens amount");
         uint256 teamAmount = ethBalance.mul(_teamPercent).div(_totalPercent);
         uint256 layerFeeAmount = ethBalance.mul(_launchpadFeePercent).div(_totalPercent);
         uint256 trustswapFeeAmount = ethBalance.mul(_launchpadFeePercent).div(_totalPercent);
