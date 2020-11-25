@@ -1,39 +1,41 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.6.0;
 
-import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import "@openzeppelin/contracts/token/ERC20/SafeERC20.sol";
-import "@openzeppelin/contracts/token/ERC20/ERC20Capped.sol";
-import "@openzeppelin/contracts/access/AccessControl.sol";
-import '@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router02.sol';
-import "./UniswapLocked.sol";
+import "https://github.com/OpenZeppelin/openzeppelin-contracts/blob/master/contracts/token/ERC20/IERC20.sol";
+import "https://github.com/OpenZeppelin/openzeppelin-contracts/blob/master/contracts/token/ERC20/SafeERC20.sol";
+import "https://github.com/OpenZeppelin/openzeppelin-contracts/blob/master/contracts/token/ERC20/ERC20Capped.sol";
+import "https://github.com/OpenZeppelin/openzeppelin-contracts/blob/master/contracts/access/AccessControl.sol";
+import 'https://github.com/Uniswap/uniswap-v2-periphery/blob/master/contracts/interfaces/IUniswapV2Router02.sol';
+import "UniswapLocked.sol";
 
 contract Launchpad{
 
     using SafeMath for uint256;
     using SafeERC20 for IERC20;
    
-      /**
+    /**
      * @dev  emitted when sold out
      *
-     */
+    */
     event SoldOut();
     //  This value needs to be the same on UniswapLocked Contract
-    uint256 private constant _BASE_PRICE = 100000;
+    uint256 private constant _BASE_PRICE = 100000000;
 
     uint256 private constant _totalPercent = 10000;
-    // Layer charges 2.5 % and TrustSwap another 2.5%
-    uint256 private constant _launchpadFeePercent = 250;
+    
+    uint256 private constant _fee1 = 100;
 
-    address private constant _layerFeeAddress = 0x0fF6ffcFDa92c53F615a4A75D982f399C989366b;
+    uint256 private constant _fee3 = 300;
 
-    address private constant _trustSwapFeeAddress = 0x0fF6ffcFDa92c53F615a4A75D982f399C989366b;
+    address private constant _layerFeeAddress = 0x777e94B19c6434119fd03A336d789eeAA28c648c;
+    
+    address private constant _supportFeeAddress = 0x037B64Ae583C3403843a028aE713a3169672927D;
+    
+    address private constant _stakeFeeAddress = 0xb9eDb6BEd74c6a0A84e229a34C16457401697C73;
 
     mapping (address => uint256) private _balancesToClaim;
 
     mapping (address => uint256) private _balancesToClaimTokens;
-
-    uint256 private _liquidityLock;
 
     uint256 private _mintedLiquidity;
 
@@ -47,10 +49,9 @@ contract Launchpad{
 
     uint256 private _releaseTime;
     // We use price inverted for better calculations
-    uint256[] private _priceInv;
+    uint256[3] private _priceInv;
      // We use price inverted for better calculations
-    uint256[] private _caps;
-
+    uint256[3] private _caps;
 
      // We use price inverted for better calculations
     uint256 private _priceUniInv;
@@ -72,25 +73,74 @@ contract Launchpad{
     address private _teamWallet;
 
     address private _owner;
+    
+    address private _deployer;
 
     IERC20 private _token;
 
     UniswapLocked private _uniLocked;
+    
+    string private _tokenName;
 
-    constructor(IUniswapV2Router02 uniRouter, IERC20 token, uint256 priceUniInv, uint256[] memory caps, uint256[] memory priceInv, address owner, address teamWallet, uint256 softCap, uint256 maxCap, uint256 liquidityPercent, uint256 teamPercent, uint256 end, uint256 start, uint256 releaseTime) 
+    string private _siteUrl;
+    
+    string private _paperUrl;
+
+    string private _twitterUrl;
+
+    string private _telegramUrl;
+
+    string private _mediumUrl;
+    
+    string private _gitUrl;
+    
+    string private _discordUrl;
+    
+    string private _tokenDesc;
+    
+    uint256 private _tokenTotalSupply;
+    
+    uint256 private _tokensForSale;
+    
+    uint256 private _minContribution;
+    
+    uint256 private _maxContribution;
+    
+    uint256 private _round;
+    
+    bool private _uniListing;
+    
+    bool private _tokenMint;
+
+    constructor(
+        IUniswapV2Router02 uniRouter,
+        IERC20 token, 
+        uint256 priceUniInv, 
+        uint256 softCap, 
+        uint256 maxCap, 
+        uint256 liquidityPercent, 
+        uint256 teamPercent, 
+        uint256 end, 
+        uint256 start, 
+        uint256 releaseTime,
+        uint256[3] memory caps, 
+        uint256[3] memory priceInv,
+        address owner, 
+        address teamWallet
+    ) 
     public 
     {
         require(start > block.timestamp, "start time needs to be above current time");
         require(releaseTime > block.timestamp, "release time above current time");
         require(end > start, "End time above start time");
-        require(liquidityPercent < 3000, "Max Liquidity allowed is 30 %");
+        require(liquidityPercent <= 3000, "Max Liquidity allowed is 30 %");
         require(priceInv[0] > _BASE_PRICE, "Price lower than Base");
         require(priceUniInv > _BASE_PRICE, "Price Uni lower than Base");
         require(owner != address(0), "Not valid address" );
         require(caps.length > 0, "Caps can not be zero" );
         require(caps.length == priceInv.length, "Caps and price not same length" );
     
-        uint256 totalPercent = teamPercent.add(liquidityPercent).add(_launchpadFeePercent.mul(2));
+        uint256 totalPercent = teamPercent.add(liquidityPercent).add(_fee1.mul(2)).add(_fee3);
         require(totalPercent == _totalPercent, "Funds are distributed max 100 %");
         // setup UniLocked token
         _uniLocked = new UniswapLocked(uniRouter, releaseTime,  owner, priceUniInv);
@@ -100,22 +150,108 @@ contract Launchpad{
         _end = end;
         _liquidityPercent = liquidityPercent;
         _teamPercent = teamPercent;
+        _caps = caps;
         _priceInv = priceInv;
         _owner = owner;
         _releaseTime = releaseTime;
         _token = token;
         _teamWallet = teamWallet;
         _priceUniInv = priceUniInv;
+        _deployer = msg.sender;
+    }
+    
+    function setDetails(
+        string memory tokenName,
+        string memory siteUrl,
+        string memory paperUrl,
+        string memory twitterUrl,
+        string memory telegramUrl,
+        string memory mediumUrl,
+        string memory gitUrl,
+        string memory discordUrl,
+        string memory tokenDesc,
+        uint256 tokensForSale,
+        uint256 minContribution,
+        uint256 maxContribution,
+        uint256 tokenTotalSupply,
+        bool uniListing,
+        bool tokenMint
+    ) external {
+        require(msg.sender == _deployer, "Only deployer can set details.");
+        _tokenName = tokenName;
+        _siteUrl = siteUrl;
+        _paperUrl = paperUrl;
+        _twitterUrl = twitterUrl;
+        _telegramUrl = telegramUrl;
+        _mediumUrl = mediumUrl;
+        _gitUrl = gitUrl;
+        _discordUrl = discordUrl;
+        _tokenDesc = tokenDesc;
+        _tokensForSale = tokensForSale;
+        _minContribution = minContribution;
+        _maxContribution = maxContribution;
+        _uniListing = uniListing;
+        _tokenMint = tokenMint;
+        _tokenTotalSupply = tokenTotalSupply;
+    }
+    
+    function getStatus() public view returns (bool, bool, bool, bool) {
+        return(_isSoldOut, _isRefunded, _uniListing, _tokenMint);
+    }
+    
+    function getDetails() public view returns (string memory, bool, bool, bool, bool) {
+        uint256 liquidityLock = _maxCap.mul(_liquidityPercent).div(_totalPercent);
+        string memory res = append(toString(_tokenTotalSupply), '|', toString(_tokensForSale), '|', toString(_maxContribution));
+        res = append(res, '|', toString(_minContribution), '|', toString(_maxCap));
+        res = append(res, '|', toString(_softCap), '|', toString(_raisedETH));
+        res = append(res, '|', toString(_priceUniInv), '|', toString(liquidityLock));
+        res = append(res, '|', toString(_start), '|', toString(_end));
+        res = append(res, '|', toString(_releaseTime), '|', toString(_liquidityPercent));
+        res = append(res, '|', toString(_teamPercent), '|', toString(_round));
+        res = append(res, '|', toString(_owner), '|', toString(_teamWallet));
+        res = append(res, '|', _siteUrl, '|', _paperUrl);
+        res = append(res, '|', _twitterUrl, '|', _telegramUrl);
+        res = append(res, '|', _mediumUrl, '|', _gitUrl);
+        res = append(res, '|', _discordUrl, '|', _tokenName);
+        res = append(res, '|', _tokenDesc, '', '');
+        return(res, _isSoldOut, _isRefunded, _uniListing, _tokenMint) ;
     }
 
-    /**
-     * 
-     */
+    function getMinInfos() public view returns (
+        string memory siteUrl,
+        string memory tokenName,
+        bool isRefunded,
+        bool isSoldOut,
+        uint256 start, 
+        uint256 end,
+        uint256 softCap,
+        uint256 maxCap,
+        uint256 raisedETH
+    ) {
+        siteUrl = _siteUrl;
+        tokenName = _tokenName;
+        isRefunded = _isRefunded;
+        isSoldOut = _isSoldOut;
+        start = _start;
+        end = _end;
+        softCap = _softCap;
+        maxCap = _maxCap;
+        raisedETH = _raisedETH;
+    }
+    
+    function getCapSize() public view returns(uint) {
+        return _caps.length;
+    }
+
+    function getCapPrice(uint index) public view returns(uint, uint, uint) {
+        return (_caps[index], _priceInv[index].div(_BASE_PRICE), (_priceInv[index].mul(_caps[index]).div(_BASE_PRICE)));
+    }
+
     function end() public view returns (uint256) {
         return _end;
     }
 
-       /**
+     /**
      * 
      */
     function claimedAmount() public view returns (uint256) {
@@ -155,14 +291,13 @@ contract Launchpad{
     function isRefunded() public view returns (bool) {
         return _isRefunded;
     }
+    
     /**
      * 
      */
     function uniLocked() public view returns (address) {
         return address(_uniLocked);
     }
-
-
 
      /**
      * @dev See {IERC20-balanceOf}.
@@ -181,7 +316,7 @@ contract Launchpad{
     * When receive ETH mint tokens internally and save a storage reference. 
     * Launchpad needs to not have refunded, and nethier sold out
     *
-     */
+    */
     receive() external payable {
         require(block.timestamp > start() , "LaunchpadToken: not started yet");
         require(block.timestamp < end() , "LaunchpadToken: finished");
@@ -195,9 +330,11 @@ contract Launchpad{
         for (uint256 index = 0; index < _caps.length; index++) {
             if(_raisedETH > _caps[index]){
                 price = _priceInv[index];
+                _round = index;
                 break;
             }
         }
+        
         _balancesToClaim[msg.sender] = _balancesToClaim[msg.sender].add(amount);
         _balancesToClaimTokens[msg.sender] = _balancesToClaimTokens[msg.sender].add(amount.mul(price));
 
@@ -254,7 +391,6 @@ contract Launchpad{
             _isRefunded = true;
             return;
         }
-
         _uniLocked.setupToken(_token);
         uint256 ethBalance = address(this).balance;
         require(ethBalance > 0, "LaunchpadToken: eth balance needs to be above zero" );
@@ -262,10 +398,12 @@ contract Launchpad{
         uint256 tokensAmount = _token.balanceOf(address(this));
         require(tokensAmount >= liquidityAmount.mul(_priceUniInv).div(_BASE_PRICE), "Launchpad: Not sufficient tokens amount");
         uint256 teamAmount = ethBalance.mul(_teamPercent).div(_totalPercent);
-        uint256 layerFeeAmount = ethBalance.mul(_launchpadFeePercent).div(_totalPercent);
-        uint256 trustswapFeeAmount = ethBalance.mul(_launchpadFeePercent).div(_totalPercent);
+        uint256 layerFeeAmount = ethBalance.mul(_fee3).div(_totalPercent);
+        uint256 supportFeeAmount = ethBalance.mul(_fee1).div(_totalPercent);
+        uint256 stakeFeeAmount = ethBalance.mul(_fee1).div(_totalPercent);
         payable(_layerFeeAddress).transfer(layerFeeAmount);
-        payable(_trustSwapFeeAddress).transfer(trustswapFeeAmount);
+        payable(_supportFeeAddress).transfer(supportFeeAmount);
+        payable(_stakeFeeAddress).transfer(stakeFeeAmount);
         payable(_teamWallet).transfer(teamAmount);
         payable(_uniLocked).transfer(liquidityAmount);
         _token.safeTransfer(address(_uniLocked), liquidityAmount.mul(_priceUniInv).div(_BASE_PRICE));
@@ -293,11 +431,36 @@ contract Launchpad{
         token.safeTransfer(_owner, amount);
     }
 
-      /**
+    function toString(address account) internal pure returns(string memory) {
+        return toString(abi.encodePacked(account));
+    }
+    
+    function toString(uint256 value) internal pure returns(string memory) {
+        return toString(abi.encodePacked(value));
+    }
+    
+    function toString(bytes32 value) internal pure returns(string memory) {
+        return toString(abi.encodePacked(value));
+    }
+    
+    function toString(bytes memory data) internal pure returns(string memory) {
+        bytes memory alphabet = "0123456789abcdef";
+    
+        bytes memory str = new bytes(2 + data.length * 2);
+        str[0] = "0";
+        str[1] = "x";
+        for (uint i = 0; i < data.length; i++) {
+            str[2+i*2] = alphabet[uint(uint8(data[i] >> 4))];
+            str[3+i*2] = alphabet[uint(uint8(data[i] & 0x0f))];
+        }
+        return string(str);
+    }
+
+    /**
      * @dev Emitted when tokens are minted on the fallback Received
      *
      * Note that `value` may be zero.
-     */
+    */
     event Received(address indexed from, uint256 value);
     /**
      * @dev Emitted when tokens are claimed by user
@@ -309,6 +472,8 @@ contract Launchpad{
      *
      */
     event Refunded(address indexed from, uint256 value);
-
-
+    
+    function append(string memory a, string memory b, string memory c, string memory d, string memory e) internal pure returns (string memory) {
+        return string(abi.encodePacked(a, b, c, d, e));
+    }    
 }
