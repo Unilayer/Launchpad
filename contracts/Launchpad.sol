@@ -176,7 +176,7 @@ contract Launchpad{
         uint256 tokenTotalSupply,
         bool uniListing,
         bool tokenMint
-    ) external {
+    ) external onlyOwner {
         require(msg.sender == _deployer, "Only deployer can set details.");
         _tokenName = tokenName;
         _siteUrl = siteUrl;
